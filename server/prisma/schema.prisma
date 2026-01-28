@@ -1,0 +1,157 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Organization {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships Membership[]
+  surveys     Survey[]
+  responses   Response[]
+  qrTokens    QrToken[]
+}
+
+model User {
+  id       String @id @default(cuid())
+  email    String @unique
+  password String
+
+  // SQLite-safe role (string instead of enum)
+  // Recommended values: "SYSTEM_ADMIN" | "ORG_ADMIN" | "STAFF"
+  role String @default("STAFF")
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships Membership[]
+}
+
+model Membership {
+  id     String @id @default(cuid())
+  userId String
+  orgId  String
+
+  // SQLite-safe role (string instead of enum)
+  // Recommended values: "SYSTEM_ADMIN" | "ORG_ADMIN" | "STAFF"
+  role String @default("STAFF")
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User         @relation(fields: [userId], references: [id])
+  org  Organization @relation(fields: [orgId], references: [id])
+
+  @@unique([userId, orgId])
+  @@index([orgId])
+  @@index([userId])
+}
+
+model Survey {
+  id          String   @id @default(cuid())
+  orgId       String
+  title       String
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  org       Organization @relation(fields: [orgId], references: [id])
+  questions Question[]
+  responses Response[]
+
+  // ✅ Opposite relation for QrToken.survey (fixes your P1012)
+  qrTokens QrToken[]
+
+  @@index([orgId])
+}
+
+model Question {
+  id       String @id @default(cuid())
+  surveyId String
+  order    Int    @default(0)
+  prompt   String
+
+  // SQLite-safe type (string instead of enum)
+  // Recommended values: "RATING_1_5" | "YES_NO" | "TEXT" | "CHOICE_SINGLE"
+  type String
+
+  choices   String? // JSON string for CHOICE_SINGLE
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  survey Survey         @relation(fields: [surveyId], references: [id])
+  items  ResponseItem[]
+
+  @@index([surveyId])
+}
+
+model Response {
+  id            String   @id @default(cuid())
+  orgId         String
+  surveyId      String
+  submittedAt   DateTime @default(now())
+
+  // NEW: capture channel/source
+  // Recommended: "QR" | "STAFF" | "USSD" | "PAPER"
+  source        String   @default("QR")
+
+  visitFrequency String?
+  timeSpentMin   Int?
+  fastExitReason String?
+  peakHourBucket String?
+
+  org    Organization @relation(fields: [orgId], references: [id])
+  survey Survey       @relation(fields: [surveyId], references: [id])
+  items  ResponseItem[]
+
+  @@index([orgId])
+  @@index([surveyId])
+  @@index([submittedAt])
+  @@index([orgId, source])
+}
+
+
+model ResponseItem {
+  id         String   @id @default(cuid())
+  responseId String
+  questionId String
+  value      String // store as string (rating, yes/no, choice key, text)
+  createdAt  DateTime @default(now())
+
+  response Response @relation(fields: [responseId], references: [id])
+  question Question @relation(fields: [questionId], references: [id])
+
+  @@index([responseId])
+  @@index([questionId])
+}
+
+model QrToken {
+  id        String    @id @default(cuid())
+  orgId     String
+  surveyId  String
+  token     String    @unique
+  expiresAt DateTime?
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+
+  org    Organization @relation(fields: [orgId], references: [id])
+  survey Survey       @relation(fields: [surveyId], references: [id])
+
+  @@index([orgId])
+  @@index([surveyId])
+  @@index([expiresAt])
+}
+
