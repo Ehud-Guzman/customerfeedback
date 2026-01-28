@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { login } from "../api/auth.api";
 import { storage } from "../lib/storage";
+import { toast } from "sonner";
 
 export default function LoginPage() {
   const nav = useNavigate();
@@ -18,18 +19,20 @@ export default function LoginPage() {
 
     const org = String(orgId || "").trim();
     if (!org) {
-      setErr("OrgId is required (X-Org-Id).");
+      setErr("OrgId is required.");
       return;
     }
 
     setLoading(true);
     try {
-      const res = await login(email, password);
+      const res = await login(email, password, org);
       if (!res?.ok) throw new Error(res?.message || "Login failed");
 
-      // Persist org AFTER successful auth
-      storage.setOrgId(org);
+      storage.setToken(res.data.token);
+      storage.setOrgId(res.data.org?.id || org);
+      storage.setOrgName(res.data.org?.name || null);
 
+      toast.success(`Welcome${res.data.org?.name ? ` • ${res.data.org.name}` : ""}`);
       nav("/app/overview", { replace: true });
     } catch (e) {
       setErr(e?.message || "Login failed");
@@ -43,49 +46,40 @@ export default function LoginPage() {
   };
 
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        display: "grid",
-        placeItems: "center",
-        padding: 16,
-      }}
-    >
-      <div className="card" style={{ width: "100%", maxWidth: 420 }}>
-        <h1 style={{ marginBottom: 12 }}>Login</h1>
+    <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", padding: 16 }}>
+      <div className="card" style={{ width: "100%", maxWidth: 440, padding: 18 }}>
+        <div style={{ marginBottom: 14 }}>
+          <div className="muted" style={{ fontSize: 12 }}>Customer Feedback</div>
+          <h1 style={{ marginTop: 4, marginBottom: 6 }}>Login</h1>
+          <div className="muted" style={{ fontSize: 12 }}>
+            Sign in to view analytics and manage survey QR.
+          </div>
+        </div>
 
         <div className="grid" style={{ gap: 10 }}>
-          <input
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="Email"
-            onKeyDown={onKeyDown}
-          />
+          <div>
+            <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>Email</div>
+            <input value={email} onChange={(e) => setEmail(e.target.value)} onKeyDown={onKeyDown} placeholder="Email" />
+          </div>
 
-          <input
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="Password"
-            type="password"
-            onKeyDown={onKeyDown}
-          />
+          <div>
+            <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>Password</div>
+            <input value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={onKeyDown} placeholder="Password" type="password" />
+          </div>
 
-          <input
-            value={orgId}
-            onChange={(e) => setOrgId(e.target.value)}
-            placeholder="OrgId (X-Org-Id)"
-            onKeyDown={onKeyDown}
-          />
+          <div>
+            <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>OrgId (tenant)</div>
+            <input value={orgId} onChange={(e) => setOrgId(e.target.value)} onKeyDown={onKeyDown} placeholder="OrgId" />
+            <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+              You must enter the organization ID you belong to.
+            </div>
+          </div>
 
-          <button onClick={onLogin} disabled={loading}>
+          <button className="btn" onClick={onLogin} disabled={loading}>
             {loading ? "Logging in…" : "Login"}
           </button>
 
-          {err && <div style={{ color: "crimson" }}>{err}</div>}
-
-          <div className="muted" style={{ fontSize: 12 }}>
-            Tip: OrgId is required because the system is multi-tenant (X-Org-Id header).
-          </div>
+          {err ? <div style={{ color: "crimson", fontWeight: 700 }}>{err}</div> : null}
         </div>
       </div>
     </div>

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect, useCallback } from "react";
 import { useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -24,6 +24,71 @@ function fmtDT(v) {
   }
 }
 
+/* ---------- CSV helpers ---------- */
+function escCsv(v) {
+  const s = String(v ?? "");
+  if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+function downloadCsv(filename, rows) {
+  const csv = rows.map((r) => r.map(escCsv).join(",")).join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+
+  setTimeout(() => URL.revokeObjectURL(url), 500);
+}
+function buildCsv(d, questions, days) {
+  const rows = [];
+  rows.push(["Survey Analytics Export"]);
+  rows.push(["Survey", d?.survey?.title || "—"]);
+  rows.push(["Days window", String(d?.windowDays ?? days)]);
+  rows.push(["Responses in window", String(d?.responsesInWindow ?? 0)]);
+  rows.push(["Last updated", fmtDT(d?.updatedAt)]);
+  rows.push(["Exported at", new Date().toLocaleString()]);
+  rows.push([]);
+
+  rows.push(["Order", "Question", "Type", "Total Answers", "Summary", "Details"]);
+
+  for (const q of questions) {
+    const type = String(q.type || "").toUpperCase();
+    const order = q.order ?? "";
+    const prompt = q.prompt ?? "";
+    const total = q.totalAnswers ?? 0;
+
+    let summary = "";
+    let details = "";
+
+    if (type === "YES_NO") {
+      summary = `YES=${q.yes ?? 0}, NO=${q.no ?? 0}, YES%=${q.yesPercent == null ? "—" : Number(q.yesPercent).toFixed(1)}`;
+      details = (q.chart || []).map((x) => `${x.label}=${x.count}`).join(" | ");
+    } else if (type === "CHOICE_SINGLE") {
+      summary = `Options=${(q.chart || []).length}`;
+      details = (q.chart || []).map((x) => `${x.label}=${x.count}`).join(" | ");
+    } else if (type === "RATING_1_5") {
+      summary = `AVG=${q.avgRating == null ? "—" : Number(q.avgRating).toFixed(2)}`;
+      details = (q.chart || []).map((x) => `${x.label}=${x.count}`).join(" | ");
+    } else if (type === "TEXT") {
+      summary = `Latest=${(q.latest || []).length}`;
+      details = (q.latest || []).slice(0, 15).map((c) => c.value).join(" | ");
+    } else {
+      summary = "—";
+      details = "Unsupported type";
+    }
+
+    rows.push([order, prompt, type, total, summary, details]);
+  }
+
+  return rows;
+}
+
+/* ---------- UI helpers ---------- */
 function Chip({ label, value }) {
   return (
     <div
@@ -54,6 +119,7 @@ function Card({ title, subtitle, right, children }) {
             gap: 12,
             alignItems: "flex-start",
             marginBottom: 10,
+            flexWrap: "wrap",
           }}
         >
           <div>
@@ -69,7 +135,6 @@ function Card({ title, subtitle, right, children }) {
 }
 
 export default function SurveyAnalyticsPage() {
-  // ✅ Hooks FIRST, always, no early returns before this section ends
   const { surveyId } = useParams();
   const qc = useQueryClient();
   const [days, setDays] = useState(7);
@@ -90,9 +155,7 @@ export default function SurveyAnalyticsPage() {
       if (res?.ok) {
         toast.success("QR token generated");
         qc.invalidateQueries({ queryKey: ["surveyQr", surveyId] });
-      } else {
-        toast.error(res?.message || "Failed to generate QR");
-      }
+      } else toast.error(res?.message || "Failed to generate QR");
     },
     onError: () => toast.error("Failed to generate QR"),
   });
@@ -103,14 +166,11 @@ export default function SurveyAnalyticsPage() {
       if (res?.ok) {
         toast.success("QR rotated (old token disabled)");
         qc.invalidateQueries({ queryKey: ["surveyQr", surveyId] });
-      } else {
-        toast.error(res?.message || "Failed to rotate QR");
-      }
+      } else toast.error(res?.message || "Failed to rotate QR");
     },
     onError: () => toast.error("Failed to rotate QR"),
   });
 
-  // ✅ Derived data via useMemo is ALSO a hook — so it must be above returns
   const d = analyticsQ.data?.ok ? analyticsQ.data.data : null;
   const questions = useMemo(() => (Array.isArray(d?.questions) ? d.questions : []), [d]);
 
@@ -120,16 +180,29 @@ export default function SurveyAnalyticsPage() {
     const choiceCount = questions.filter((q) => q.type === "CHOICE_SINGLE").length;
     const ratingCount = questions.filter((q) => q.type === "RATING_1_5").length;
     const textCount = questions.filter((q) => q.type === "TEXT").length;
-
     return { totalAnswers, yesNoCount, choiceCount, ratingCount, textCount };
   }, [questions]);
 
   const token = qrQ.data?.ok ? (qrQ.data?.data?.token || null) : null;
   const qrMeta = qrQ.data?.ok ? qrQ.data?.data : null;
 
-  // ✅ Now we can conditionally render safely
+  const csvFilename = useMemo(() => {
+    const safe = String(d?.survey?.title || "survey")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 60);
+    return `analytics-${safe || "survey"}-${days}d.csv`;
+  }, [d, days]);
 
-  // Loading
+  const onExportCsv = useCallback(() => {
+    if (!d) return;
+    const rows = buildCsv(d, questions, days);
+    downloadCsv(csvFilename, rows);
+    toast.success("CSV exported");
+  }, [d, questions, days, csvFilename]);
+
+  /* ---------- renders ---------- */
   if (analyticsQ.isLoading) {
     return (
       <div className="container" style={{ maxWidth: 1100 }}>
@@ -137,19 +210,13 @@ export default function SurveyAnalyticsPage() {
           <BackButton label="Overview" to="/app/overview" />
           <span className="muted" style={{ fontSize: 12 }}>Survey analytics</span>
         </div>
-
         <Card title="Loading analytics…" subtitle="Fetching survey data and response stats." />
       </div>
     );
   }
 
-  // Error / not ok
   if (!analyticsQ.data?.ok) {
-    const msg =
-      analyticsQ.data?.message ||
-      analyticsQ.error?.message ||
-      "Analytics failed to load.";
-
+    const msg = analyticsQ.data?.message || analyticsQ.error?.message || "Analytics failed to load.";
     return (
       <div className="container" style={{ maxWidth: 1100 }}>
         <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 10 }}>
@@ -160,11 +227,7 @@ export default function SurveyAnalyticsPage() {
         <Card
           title="Couldn’t load analytics"
           subtitle={msg}
-          right={
-            <button className="btn" onClick={() => analyticsQ.refetch()}>
-              Retry
-            </button>
-          }
+          right={<button className="btn" onClick={() => analyticsQ.refetch()}>Retry</button>}
         >
           <div className="muted" style={{ fontSize: 12 }}>
             If this keeps happening, check backend logs for Prisma errors and confirm X-Org-Id header is present.
@@ -205,13 +268,13 @@ export default function SurveyAnalyticsPage() {
             </div>
           </div>
 
-          <div style={{ display: "grid", gap: 8, alignContent: "start" }}>
+          <div style={{ display: "grid", gap: 8, alignContent: "start", minWidth: 220 }}>
             <div className="muted" style={{ fontSize: 12 }}>Window</div>
             <select
               value={days}
               onChange={(e) => setDays(Number(e.target.value))}
               style={{
-                width: 180,
+                width: 220,
                 padding: 10,
                 borderRadius: 12,
                 border: "1px solid #e5e7eb",
@@ -224,7 +287,11 @@ export default function SurveyAnalyticsPage() {
               <option value={30}>Last 30 days</option>
             </select>
 
-            <div className="muted" style={{ fontSize: 12 }}>QR</div>
+            <button className="btn-secondary" onClick={onExportCsv} title="Download analytics as CSV">
+              Export CSV
+            </button>
+
+            <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>QR</div>
 
             {token ? (
               <button
@@ -255,7 +322,6 @@ export default function SurveyAnalyticsPage() {
       <div style={{ marginTop: 12 }}>
         {token ? (
           <SurveyQrCard token={token} meta={qrMeta} />
-
         ) : (
           <Card
             title="Public QR"
@@ -326,10 +392,7 @@ export default function SurveyAnalyticsPage() {
         </div>
 
         {questions.length === 0 ? (
-          <Card
-            title="No questions found"
-            subtitle="This survey has no active questions. Add questions to start collecting useful responses."
-          />
+          <Card title="No questions found" subtitle="This survey has no active questions. Add questions to start collecting responses." />
         ) : (
           <div style={{ display: "grid", gap: 12 }}>
             {questions.map((q) => {
@@ -354,15 +417,7 @@ export default function SurveyAnalyticsPage() {
                     </div>
                   </div>
 
-                  {/* Charts / details */}
-                  {type === "RATING_1_5" && (
-                    <div style={{ marginTop: 12 }}>
-                      <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>Distribution (1–5)</div>
-                      <BarList items={q.chart || []} labelKey="label" valueKey="count" />
-                    </div>
-                  )}
-
-                  {type === "YES_NO" && (
+                  {["YES_NO", "CHOICE_SINGLE", "RATING_1_5"].includes(type) ? (
                     <div style={{ marginTop: 12 }}>
                       {(q.chart || []).length ? (
                         <BarList items={q.chart} labelKey="label" valueKey="count" />
@@ -370,34 +425,15 @@ export default function SurveyAnalyticsPage() {
                         <div className="muted">No responses yet.</div>
                       )}
                     </div>
-                  )}
+                  ) : null}
 
-                  {type === "CHOICE_SINGLE" && (
-                    <div style={{ marginTop: 12 }}>
-                      <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>Option distribution</div>
-                      {(q.chart || []).length ? (
-                        <BarList items={q.chart} labelKey="label" valueKey="count" />
-                      ) : (
-                        <div className="muted">No responses yet.</div>
-                      )}
-                    </div>
-                  )}
-
-                  {type === "TEXT" && (
+                  {type === "TEXT" ? (
                     <div style={{ marginTop: 12 }}>
                       <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>Latest comments</div>
                       {(q.latest || []).length ? (
                         <div style={{ display: "grid", gap: 10 }}>
                           {q.latest.map((c, idx) => (
-                            <div
-                              key={idx}
-                              style={{
-                                border: "1px solid #e5e7eb",
-                                borderRadius: 14,
-                                padding: 12,
-                                background: "#fff",
-                              }}
-                            >
+                            <div key={idx} style={{ border: "1px solid #e5e7eb", borderRadius: 14, padding: 12, background: "#fff" }}>
                               <div style={{ fontWeight: 800 }}>{c.value}</div>
                               <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
                                 {fmtDT(c.submittedAt)}
@@ -410,7 +446,7 @@ export default function SurveyAnalyticsPage() {
                         <div className="muted">No comments yet.</div>
                       )}
                     </div>
-                  )}
+                  ) : null}
 
                   {!["RATING_1_5", "YES_NO", "CHOICE_SINGLE", "TEXT"].includes(type) ? (
                     <div className="muted" style={{ marginTop: 12 }}>
@@ -425,7 +461,7 @@ export default function SurveyAnalyticsPage() {
       </div>
 
       <div className="muted" style={{ fontSize: 12, marginTop: 12, textAlign: "center" }}>
-        Tip: Use “Open test” in the QR card to verify public survey before printing.
+        Tip: Use “Open test” in the QR card to verify the public survey before printing.
       </div>
     </div>
   );
