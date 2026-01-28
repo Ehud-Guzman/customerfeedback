@@ -1,4 +1,3 @@
-// server/index.js (ENTRY)
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
@@ -38,13 +37,17 @@ app.set("trust proxy", 1);
 app.use(
   cors({
     origin: (origin, cb) => {
-      if (!origin) return cb(null, true); // allow Postman / server-to-server
+      if (!origin) return cb(null, true);
       if (allowedOrigins.has(origin)) return cb(null, true);
       return cb(new Error("Not allowed by CORS"));
     },
     credentials: true,
+    allowedHeaders: ["Content-Type", "Authorization", "X-Org-Id"],
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   })
 );
+
+app.options("*", cors());
 
 app.use(express.json({ limit: "1mb" }));
 app.disable("etag");
@@ -53,10 +56,6 @@ app.disable("etag");
 app.get("/health", (req, res) =>
   res.json({ status: "ok", message: "Customer Feedback API running" })
 );
-
-// --------------------
-// ROUTES
-// --------------------
 
 // Public (QR) routes (NO AUTH)
 app.use("/api/public", publicRoutes);
@@ -79,33 +78,26 @@ app.use("/api/analytics", requireAnalyticsAccess, analyticsRoutes);
 // Staff-assisted submissions (STAFF allowed)
 app.use("/api/staff-feedback", staffFeedbackRoutes);
 
-// --------------------
 // 404
-// --------------------
 app.use((req, res) =>
   res
     .status(404)
     .json({ ok: false, message: `Route not found: ${req.method} ${req.originalUrl}` })
 );
 
-// --------------------
 // Global error handler
-// --------------------
 app.use((err, req, res, next) => {
   console.error("GLOBAL ERROR:", err);
 
-  // CORS failures
   if (err?.message?.includes("CORS") || err?.message?.includes("Not allowed by CORS")) {
     return res.status(403).json({ ok: false, message: "Blocked by CORS" });
   }
 
   const status = err?.status && Number.isInteger(err.status) ? err.status : 500;
-
-  // In dev, return helpful message; in prod, keep it generic if you want
   const message =
     err?.message && status !== 500 ? err.message : err?.message || "Server error";
 
   return res.status(status).json({ ok: false, message });
 });
 
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, "0.0.0.0", () => console.log(`Server running on port ${PORT}`));
