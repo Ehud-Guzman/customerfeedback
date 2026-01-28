@@ -15,7 +15,6 @@ function requireAnalyticsAccess(req, res, next) {
 
 const router = Router();
 
-// apply to all analytics routes
 router.use(requireAnalyticsAccess);
 
 // GET /api/analytics/overview?days=7

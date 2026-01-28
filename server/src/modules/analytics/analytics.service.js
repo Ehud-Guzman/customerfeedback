@@ -43,6 +43,31 @@ function safeNumber(v) {
 }
 
 /**
+ * Try to parse an hour from a bucket string.
+ * Supports:
+ *  - "08-09" -> 8
+ *  - "8-9"   -> 8
+ *  - "08"    -> 8
+ *  - "8"     -> 8
+ * Otherwise returns null.
+ */
+function bucketToHour(bucket) {
+  const s = String(bucket ?? "").trim();
+  if (!s) return null;
+
+  // "08-09" or "8-9"
+  const dash = s.split("-");
+  if (dash.length >= 2) {
+    const h = Number.parseInt(dash[0], 10);
+    return Number.isFinite(h) ? h : null;
+  }
+
+  // "08" or "8"
+  const h = Number.parseInt(s, 10);
+  return Number.isFinite(h) ? h : null;
+}
+
+/**
  * GET /api/analytics/overview?days=7
  */
 export async function overviewAnalytics({ orgId, days }) {
@@ -116,7 +141,21 @@ export async function overviewAnalytics({ orgId, days }) {
     .sort((a, b) => b.count - a.count)
     .slice(0, 5);
 
+  const peakHours = peakHourBuckets
+    .filter((x) => x.peakHourBucket)
+    .map((x) => {
+      const bucket = x.peakHourBucket;
+      const hour = bucketToHour(bucket);
+      return {
+        bucket,
+        hour, // null if cannot parse
+        count: x._count._all,
+      };
+    });
+
   return {
+    updatedAt: new Date().toISOString(),
+
     windowDays,
     since: since.toISOString(),
 
@@ -125,13 +164,7 @@ export async function overviewAnalytics({ orgId, days }) {
 
     avgTimeSpentMin: avgTimeSpent._avg.timeSpentMin ?? null,
 
-    // Frontend-friendly arrays
-    peakHours: peakHourBuckets
-      .filter((x) => x.peakHourBucket)
-      .map((x) => ({
-        bucket: x.peakHourBucket,
-        count: x._count._all,
-      })),
+    peakHours,
 
     sources: bySource
       .map((x) => ({
@@ -210,6 +243,8 @@ export async function trendsAnalytics({ orgId, days }) {
     }));
 
   return {
+    updatedAt: new Date().toISOString(),
+
     windowDays,
     since: since.toISOString(),
     series,
@@ -223,7 +258,7 @@ export async function surveyAnalytics({ orgId, surveyId, days }) {
   const windowDays = clampInt(days, 1, 365, 7);
   const since = startDateFromDays(windowDays);
 
-  // Must belong to org, must be active (optional, but best practice)
+  // Must belong to org
   const survey = await prisma.survey.findFirst({
     where: { id: surveyId, orgId },
     include: {
@@ -241,12 +276,10 @@ export async function surveyAnalytics({ orgId, surveyId, days }) {
     throw err;
   }
 
-  // Count responses in the window for this survey
   const responsesInWindow = await prisma.response.count({
     where: { orgId, surveyId, submittedAt: { gte: since } },
   });
 
-  // Pull response items for this survey+org in window, minimal + joined metadata
   const items = await prisma.responseItem.findMany({
     where: {
       response: { orgId, surveyId, submittedAt: { gte: since } },
@@ -258,8 +291,7 @@ export async function surveyAnalytics({ orgId, surveyId, days }) {
     },
   });
 
-  // Pre-parse choice definitions (choices JSON string)
-  // Expected structure (your design): array of { key, label } OR array of strings
+  // Pre-parse choices JSON for CHOICE_SINGLE
   const choiceMapByQ = new Map(); // qid -> Map(optionKey -> label)
   for (const q of survey.questions) {
     if (String(q.type).toUpperCase() !== "CHOICE_SINGLE") continue;
@@ -268,8 +300,8 @@ export async function surveyAnalytics({ orgId, surveyId, days }) {
 
     try {
       const parsed = JSON.parse(raw);
-
       const m = new Map();
+
       if (Array.isArray(parsed)) {
         for (const opt of parsed) {
           if (typeof opt === "string") {
@@ -282,9 +314,10 @@ export async function surveyAnalytics({ orgId, surveyId, days }) {
           }
         }
       }
+
       if (m.size) choiceMapByQ.set(q.id, m);
     } catch {
-      // ignore bad JSON in v1; you can fix in UI later
+      // ignore bad JSON in v1; fix via UI later
     }
   }
 
@@ -296,11 +329,11 @@ export async function surveyAnalytics({ orgId, surveyId, days }) {
       order: q.order,
       prompt: q.prompt,
       type: q.type,
-      totalAnswers: 0,
-            ratingDist: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
 
+      totalAnswers: 0,
 
       // rating
+      ratingDist: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
       ratingSum: 0,
       ratingCount: 0,
 
@@ -326,23 +359,21 @@ export async function surveyAnalytics({ orgId, surveyId, days }) {
     s.totalAnswers += 1;
 
     const qType = String(it.question.type || "").toUpperCase();
-if (qType === "RATING_1_5") {
-  const n = Number(valRaw);
-  const r = Math.round(n);
 
-  if (Number.isFinite(n) && r >= 1 && r <= 5) {
-    s.ratingSum += r;
-    s.ratingCount += 1;
+    if (qType === "RATING_1_5") {
+      const n = Number(valRaw);
+      const r = Math.round(n);
 
-    // distribution
-    s.ratingDist[r] = (s.ratingDist[r] || 0) + 1;
-  }
+      if (Number.isFinite(n) && r >= 1 && r <= 5) {
+        s.ratingSum += r;
+        s.ratingCount += 1;
+        s.ratingDist[r] = (s.ratingDist[r] || 0) + 1;
+      }
     } else if (qType === "YES_NO") {
       const v = normalizeEnumish(valRaw);
       if (v === "YES") s.yes += 1;
       else if (v === "NO") s.no += 1;
     } else if (qType === "CHOICE_SINGLE") {
-      // store option keys normalized so chart isn’t messy
       const key = normalizeEnumish(valRaw) ?? valRaw;
       s.choiceCounts.set(key, (s.choiceCounts.get(key) || 0) + 1);
     } else if (qType === "TEXT") {
@@ -354,34 +385,49 @@ if (qType === "RATING_1_5") {
     }
   }
 
-  // finalize question analytics
+  // finalize question analytics (frontend-friendly)
   const questions = Array.from(stats.values())
     .sort((a, b) => a.order - b.order)
     .map((q) => {
       const type = String(q.type).toUpperCase();
+
       const out = {
         questionId: q.questionId,
         order: q.order,
         prompt: q.prompt,
         type: q.type,
         totalAnswers: q.totalAnswers,
+
+        // universal: bar chart friendly structure
+        chart: null,
       };
 
-   if (String(q.type).toUpperCase() === "RATING_1_5") {
-  out.avgRating = q.ratingCount ? q.ratingSum / q.ratingCount : null;
-  out.ratingDist = q.ratingDist; // {1: n,2: n,3: n,4: n,5: n}
-}
+      if (type === "RATING_1_5") {
+        out.avgRating = q.ratingCount ? q.ratingSum / q.ratingCount : null;
+        out.ratingDist = q.ratingDist;
 
+        // optional chart for rating distribution (useful later)
+        out.chart = [1, 2, 3, 4, 5].map((k) => ({
+          label: String(k),
+          count: q.ratingDist[k] || 0,
+        }));
+      }
 
       if (type === "YES_NO") {
         const total = q.yes + q.no;
         out.yes = q.yes;
         out.no = q.no;
         out.yesPercent = total ? (q.yes / total) * 100 : null;
+
+        out.chart = [
+          { label: "YES", count: q.yes },
+          { label: "NO", count: q.no },
+        ];
       }
 
       if (type === "CHOICE_SINGLE") {
         const labelMap = choiceMapByQ.get(q.questionId);
+
         out.options = Array.from(q.choiceCounts.entries())
           .map(([key, count]) => ({
             key,
@@ -389,6 +435,11 @@ if (qType === "RATING_1_5") {
             count,
           }))
           .sort((a, b) => b.count - a.count);
+
+        out.chart = out.options.map((o) => ({
+          label: o.label,
+          count: o.count,
+        }));
       }
 
       if (type === "TEXT") {
@@ -406,6 +457,8 @@ if (qType === "RATING_1_5") {
     });
 
   return {
+    updatedAt: new Date().toISOString(),
+
     windowDays,
     since: since.toISOString(),
 
