@@ -11,7 +11,6 @@ function parseDays(qDays, fallback = 7) {
 }
 
 function requireOrgId(req) {
-  // best practice: orgId comes from tenant middleware using X-Org-Id header
   const orgId = req.orgId || req.tenant?.orgId || req.headers["x-org-id"];
   if (!orgId) {
     const err = new Error("Missing X-Org-Id");

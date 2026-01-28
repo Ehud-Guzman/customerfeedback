@@ -1,10 +1,24 @@
 import { useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { toast } from "sonner";
+
 import { getPublicSurvey, submitPublicSurvey } from "../api/public.api";
 
+function parseChoices(choices) {
+  if (!choices) return [];
+  try {
+    const v = JSON.parse(choices);
+    return Array.isArray(v) ? v : [];
+  } catch {
+    return [];
+  }
+}
+
 function QuestionField({ q, value, onChange }) {
-  if (q.type === "RATING_1_5") {
+  const type = String(q.type || "").toUpperCase();
+
+  if (type === "RATING_1_5") {
     return (
       <input
         type="number"
@@ -16,7 +30,8 @@ function QuestionField({ q, value, onChange }) {
       />
     );
   }
-  if (q.type === "YES_NO") {
+
+  if (type === "YES_NO") {
     return (
       <select value={value ?? ""} onChange={(e) => onChange(e.target.value)}>
         <option value="">Select…</option>
@@ -25,6 +40,25 @@ function QuestionField({ q, value, onChange }) {
       </select>
     );
   }
+
+  if (type === "CHOICE_SINGLE") {
+    const options = parseChoices(q.choices);
+    return (
+      <select value={value ?? ""} onChange={(e) => onChange(e.target.value)}>
+        <option value="">Select…</option>
+        {options.map((opt, idx) => {
+          const key = typeof opt === "string" ? opt : opt?.key ?? String(idx);
+          const label = typeof opt === "string" ? opt : opt?.label ?? key;
+          return (
+            <option key={key} value={key}>
+              {label}
+            </option>
+          );
+        })}
+      </select>
+    );
+  }
+
   return (
     <textarea
       rows={3}
@@ -38,12 +72,6 @@ function QuestionField({ q, value, onChange }) {
 export default function PublicSurveyPage() {
   const { token } = useParams();
   const [answers, setAnswers] = useState({}); // questionId -> value
-  const [meta, setMeta] = useState({
-    visitFrequency: "",
-    timeSpentMin: "",
-    fastExitReason: "",
-    peakHourBucket: "",
-  });
 
   const q = useQuery({
     queryKey: ["publicSurvey", token],
@@ -51,96 +79,72 @@ export default function PublicSurveyPage() {
   });
 
   const survey = q.data?.data?.survey;
-  const questions = survey?.questions || [];
 
-  const canSubmit = useMemo(() => {
-    if (!questions.length) return false;
-    // require at least 1 answered question for v1
-    return questions.some((qq) => String(answers[qq.id] || "").trim());
-  }, [questions, answers]);
+  const questions = useMemo(() => {
+    return Array.isArray(survey?.questions) ? survey.questions : [];
+  }, [survey]);
 
-  const m = useMutation({
+  const submit = useMutation({
     mutationFn: (payload) => submitPublicSurvey(token, payload),
+    onSuccess: (res) => {
+      if (res?.ok) {
+        toast.success("Thanks! Feedback submitted.");
+        setAnswers({});
+      } else {
+        toast.error(res?.message || "Submit failed");
+      }
+    },
+    onError: () => toast.error("Submit failed"),
   });
 
-  const onSubmit = async () => {
+  function setAnswer(questionId, v) {
+    setAnswers((prev) => ({ ...prev, [questionId]: v }));
+  }
+
+  function onSubmit() {
     const items = questions
-      .map((qq) => ({
-        questionId: qq.id,
-        value: String(answers[qq.id] ?? "").trim(),
+      .map((q) => ({
+        questionId: q.id,
+        value: String(answers[q.id] ?? "").trim(),
       }))
-      .filter((it) => it.value);
+      .filter((x) => x.value);
 
-    const payload = {
-      visitFrequency: meta.visitFrequency || null,
-      timeSpentMin: meta.timeSpentMin ? Number(meta.timeSpentMin) : null,
-      fastExitReason: meta.fastExitReason || null,
-      peakHourBucket: meta.peakHourBucket || null,
-      items,
-    };
+    submit.mutate({ items });
+  }
 
-    await m.mutateAsync(payload);
-  };
-
-  if (q.isLoading) return <div style={{ padding: 16 }}>Loading…</div>;
-  if (!q.data?.ok) return <div style={{ padding: 16 }}>Survey not available.</div>;
+  if (q.isLoading) return <div className="container">Loading…</div>;
+  if (!q.data?.ok) return <div className="container">Not found.</div>;
 
   return (
-    <div style={{ maxWidth: 720, margin: "0 auto", padding: 16 }}>
-      <h1 style={{ marginBottom: 4 }}>{survey.title}</h1>
-      <p style={{ marginTop: 0, opacity: 0.8 }}>{survey.description}</p>
-
-      <div style={{ display: "grid", gap: 10, margin: "16px 0" }}>
-        <input
-          placeholder="Visit frequency (DAILY/WEEKLY/MONTHLY/FIRST_TIME)"
-          value={meta.visitFrequency}
-          onChange={(e) => setMeta((s) => ({ ...s, visitFrequency: e.target.value }))}
-        />
-        <input
-          placeholder="Time spent (minutes)"
-          value={meta.timeSpentMin}
-          onChange={(e) => setMeta((s) => ({ ...s, timeSpentMin: e.target.value }))}
-        />
-        <input
-          placeholder="Fast exit reason (QUEUE/NO_STOCK/PRICE/SERVICE/OTHER)"
-          value={meta.fastExitReason}
-          onChange={(e) => setMeta((s) => ({ ...s, fastExitReason: e.target.value }))}
-        />
-        <input
-          placeholder="Peak hour bucket (e.g. 10-12)"
-          value={meta.peakHourBucket}
-          onChange={(e) => setMeta((s) => ({ ...s, peakHourBucket: e.target.value }))}
-        />
+    <div className="container" style={{ maxWidth: 760 }}>
+      <div className="card">
+        <h1 style={{ marginBottom: 6 }}>{survey?.title || "Survey"}</h1>
+        {survey?.description ? <div className="muted">{survey.description}</div> : null}
       </div>
 
-      <div style={{ display: "grid", gap: 16 }}>
-        {questions.map((qq) => (
-          <div key={qq.id} style={{ border: "1px solid #ddd", padding: 12, borderRadius: 10 }}>
-            <div style={{ fontWeight: 600, marginBottom: 8 }}>{qq.order}. {qq.prompt}</div>
+      <div style={{ display: "grid", gap: 12, marginTop: 12 }}>
+        {questions.map((qItem, idx) => (
+          <div className="card" key={qItem.id}>
+            <div style={{ fontWeight: 800, marginBottom: 8 }}>
+              {idx + 1}. {qItem.prompt}
+            </div>
+
             <QuestionField
-              q={qq}
-              value={answers[qq.id]}
-              onChange={(v) => setAnswers((s) => ({ ...s, [qq.id]: v }))}
+              q={qItem}
+              value={answers[qItem.id] ?? ""}
+              onChange={(v) => setAnswer(qItem.id, v)}
             />
           </div>
         ))}
       </div>
 
-      <div style={{ marginTop: 16 }}>
-        <button disabled={!canSubmit || m.isPending} onClick={onSubmit}>
-          {m.isPending ? "Submitting…" : "Submit"}
+      <div style={{ marginTop: 14, display: "flex", gap: 10, alignItems: "center" }}>
+        <button className="btn" onClick={onSubmit} disabled={submit.isPending}>
+          {submit.isPending ? "Submitting..." : "Submit"}
         </button>
-
-        {m.data?.ok && (
-          <div style={{ marginTop: 10 }}>
-            ✅ Submitted: {m.data.data?.responseId}
-          </div>
-        )}
-        {m.isError && (
-          <div style={{ marginTop: 10 }}>
-            ❌ Failed. Check server / response.
-          </div>
-        )}
+        <span className="muted" style={{ fontSize: 12 }}>
+          No login required.
+        </span>
       </div>
     </div>
   );

@@ -55,14 +55,12 @@ function bucketToHour(bucket) {
   const s = String(bucket ?? "").trim();
   if (!s) return null;
 
-  // "08-09" or "8-9"
   const dash = s.split("-");
   if (dash.length >= 2) {
     const h = Number.parseInt(dash[0], 10);
     return Number.isFinite(h) ? h : null;
   }
 
-  // "08" or "8"
   const h = Number.parseInt(s, 10);
   return Number.isFinite(h) ? h : null;
 }
@@ -71,7 +69,6 @@ function bucketToHour(bucket) {
  * GET /api/analytics/overview?days=7
  */
 export async function overviewAnalytics({ orgId, days }) {
-  // harden days to prevent accidental "all time" queries
   const windowDays = clampInt(days, 1, 365, 7);
   const since = startDateFromDays(windowDays);
 
@@ -148,7 +145,7 @@ export async function overviewAnalytics({ orgId, days }) {
       const hour = bucketToHour(bucket);
       return {
         bucket,
-        hour, // null if cannot parse
+        hour,
         count: x._count._all,
       };
     });
@@ -187,9 +184,6 @@ export async function overviewAnalytics({ orgId, days }) {
 
 /**
  * GET /api/analytics/trends?days=14
- *
- * NOTE: SQLite date-grouping via Prisma is limited.
- * We fetch minimal fields for a short window, then aggregate in JS.
  */
 export async function trendsAnalytics({ orgId, days }) {
   const windowDays = clampInt(days, 1, 365, 14);
@@ -201,7 +195,7 @@ export async function trendsAnalytics({ orgId, days }) {
     orderBy: { submittedAt: "asc" },
   });
 
-  const byDay = new Map(); // dayKey -> { count, timeSum, timeCount, bySource }
+  const byDay = new Map();
   for (const r of rows) {
     const day = toDayKey(r.submittedAt);
 
@@ -210,14 +204,13 @@ export async function trendsAnalytics({ orgId, days }) {
         count: 0,
         timeSum: 0,
         timeCount: 0,
-        bySource: new Map(), // source -> count
+        bySource: new Map(),
       });
     }
 
     const agg = byDay.get(day);
     agg.count += 1;
 
-    // time spent avg
     if (r.timeSpentMin != null) {
       const n = safeNumber(r.timeSpentMin);
       if (n != null) {
@@ -226,7 +219,6 @@ export async function trendsAnalytics({ orgId, days }) {
       }
     }
 
-    // source split
     const src = normalizeEnumish(r.source) ?? "UNKNOWN";
     agg.bySource.set(src, (agg.bySource.get(src) || 0) + 1);
   }
@@ -261,7 +253,10 @@ export async function surveyAnalytics({ orgId, surveyId, days }) {
   // Must belong to org
   const survey = await prisma.survey.findFirst({
     where: { id: surveyId, orgId },
-    include: {
+    select: {
+      id: true,
+      title: true,
+      description: true,
       questions: {
         where: { isActive: true },
         orderBy: { order: "asc" },
@@ -292,7 +287,7 @@ export async function surveyAnalytics({ orgId, surveyId, days }) {
   });
 
   // Pre-parse choices JSON for CHOICE_SINGLE
-  const choiceMapByQ = new Map(); // qid -> Map(optionKey -> label)
+  const choiceMapByQ = new Map();
   for (const q of survey.questions) {
     if (String(q.type).toUpperCase() !== "CHOICE_SINGLE") continue;
     const raw = String(q.choices || "").trim();
@@ -329,23 +324,18 @@ export async function surveyAnalytics({ orgId, surveyId, days }) {
       order: q.order,
       prompt: q.prompt,
       type: q.type,
-
       totalAnswers: 0,
 
-      // rating
       ratingDist: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
       ratingSum: 0,
       ratingCount: 0,
 
-      // yes/no
       yes: 0,
       no: 0,
 
-      // choice
-      choiceCounts: new Map(), // optionKey -> count
+      choiceCounts: new Map(),
 
-      // text
-      textLatest: [], // { value, submittedAt, source }
+      textLatest: [],
     });
   }
 
@@ -385,7 +375,6 @@ export async function surveyAnalytics({ orgId, surveyId, days }) {
     }
   }
 
-  // finalize question analytics (frontend-friendly)
   const questions = Array.from(stats.values())
     .sort((a, b) => a.order - b.order)
     .map((q) => {
@@ -397,16 +386,12 @@ export async function surveyAnalytics({ orgId, surveyId, days }) {
         prompt: q.prompt,
         type: q.type,
         totalAnswers: q.totalAnswers,
-
-        // universal: bar chart friendly structure
         chart: null,
       };
 
       if (type === "RATING_1_5") {
         out.avgRating = q.ratingCount ? q.ratingSum / q.ratingCount : null;
         out.ratingDist = q.ratingDist;
-
-        // optional chart for rating distribution (useful later)
         out.chart = [1, 2, 3, 4, 5].map((k) => ({
           label: String(k),
           count: q.ratingDist[k] || 0,
@@ -418,7 +403,6 @@ export async function surveyAnalytics({ orgId, surveyId, days }) {
         out.yes = q.yes;
         out.no = q.no;
         out.yesPercent = total ? (q.yes / total) * 100 : null;
-
         out.chart = [
           { label: "YES", count: q.yes },
           { label: "NO", count: q.no },
