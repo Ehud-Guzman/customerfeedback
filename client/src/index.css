@@ -283,3 +283,155 @@ hr {
   padding: 14px;
   box-shadow: 0 12px 40px rgba(17, 24, 39, 0.06);
 }
+
+/* =========================
+   QUALITY PATCHES (Premium UI)
+   Paste below existing CSS
+   ========================= */
+
+/* 1) You use .btn in React but CSS doesn’t define it */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+
+  background: #2563eb;
+  color: #fff;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+
+  transition: background-color 0.15s ease, opacity 0.15s ease, transform 0.05s ease,
+    box-shadow 0.15s ease;
+}
+
+.btn:hover {
+  background: #1d4ed8;
+  text-decoration: none;
+}
+
+.btn:active {
+  transform: translateY(1px);
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* 2) Make secondary buttons feel “soft premium”, not “black slab” */
+.btn-secondary {
+  background: #fff;
+  color: #111827;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 6px 18px rgba(17, 24, 39, 0.06);
+}
+
+.btn-secondary:hover {
+  background: #f9fafb;
+}
+
+/* 3) Make cards slightly elevated + interactive */
+.card {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  padding: 14px;
+  box-shadow: 0 10px 28px rgba(17, 24, 39, 0.04);
+}
+
+.card:hover {
+  box-shadow: 0 14px 36px rgba(17, 24, 39, 0.06);
+}
+
+/* 4) Links inside cards should not underline on hover by default */
+.card a:hover {
+  text-decoration: none;
+}
+
+/* 5) Inputs: slightly more premium */
+input,
+select,
+textarea {
+  border-radius: 12px;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: rgba(37, 99, 235, 0.55);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
+}
+
+/* 6) Pills: soften + active pill should feel “selected” */
+.pill {
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid #e5e7eb;
+  background: rgba(255, 255, 255, 0.9);
+  font-weight: 800;
+  font-size: 13px;
+  transition: box-shadow 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+}
+
+.pill:hover {
+  background: #fff;
+}
+
+.pill-active {
+  border-color: rgba(37, 99, 235, 0.35);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+  background: #fff;
+}
+
+/* 7) Give containers a slightly bigger max width (your new pages use 1100) */
+.container {
+  max-width: 1100px;
+}
+
+/* 8) Content card is good — just tighten the look */
+.content-card {
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid #e5e7eb;
+  padding: 14px;
+  box-shadow: 0 16px 50px rgba(17, 24, 39, 0.06);
+}
+
+/* 9) Make headings look more “product” */
+h1 {
+  font-weight: 950;
+  letter-spacing: -0.02em;
+}
+
+h3 {
+  font-weight: 900;
+  letter-spacing: -0.01em;
+}
+
+/* 10) Slightly improve muted contrast for clarity */
+.muted {
+  color: #6b7280;
+}
+
+/* 11) Optional: make select look less default-HTML */
+select {
+  appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, #6b7280 50%),
+    linear-gradient(135deg, #6b7280 50%, transparent 50%);
+  background-position:
+    calc(100% - 18px) calc(1em + 2px),
+    calc(100% - 13px) calc(1em + 2px);
+  background-size:
+    5px 5px,
+    5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 34px;
+}

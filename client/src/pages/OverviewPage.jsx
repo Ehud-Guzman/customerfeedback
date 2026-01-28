@@ -5,15 +5,24 @@ import { getOverview, getTrends } from "../api/analytics.api";
 import LineChart from "../components/LineChart.jsx";
 import BarList from "../components/BarList.jsx";
 
+function fmtDT(v) {
+  if (!v) return "—";
+  try {
+    return new Date(v).toLocaleString();
+  } catch {
+    return "—";
+  }
+}
+
 function StatCard({ label, value, sub }) {
   return (
-    <div className="card">
+    <div className="card" style={{ padding: 14 }}>
       <div className="muted" style={{ fontSize: 12 }}>{label}</div>
-      <div style={{ fontSize: 26, fontWeight: 900, letterSpacing: "-0.02em" }}>
+      <div style={{ fontSize: 28, fontWeight: 950, letterSpacing: "-0.02em", marginTop: 6 }}>
         {value}
       </div>
       {sub ? (
-        <div className="muted" style={{ marginTop: 6, fontSize: 12 }}>
+        <div className="muted" style={{ marginTop: 8, fontSize: 12 }}>
           {sub}
         </div>
       ) : null}
@@ -34,6 +43,7 @@ export default function OverviewPage() {
     queryFn: () => getTrends(14),
   });
 
+  const ok = overviewQ.data?.ok;
   const d = overviewQ.data?.data;
 
   const surveyRows = useMemo(() => {
@@ -43,24 +53,66 @@ export default function OverviewPage() {
 
   const trendsSeries = trendsQ.data?.data?.series || [];
 
-  if (overviewQ.isLoading) return <div className="container">Loading…</div>;
-  if (!overviewQ.data?.ok) return <div className="container">Failed to load.</div>;
+  // Better loading/error UI
+  if (overviewQ.isLoading) {
+    return (
+      <div className="container" style={{ maxWidth: 1100 }}>
+        <div className="card" style={{ padding: 16 }}>
+          <div style={{ fontWeight: 950, fontSize: 16 }}>Loading overview…</div>
+          <div className="muted" style={{ marginTop: 6 }}>Pulling responses and summary analytics.</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!ok) {
+    const msg = overviewQ.data?.message || overviewQ.error?.message || "Failed to load overview.";
+    return (
+      <div className="container" style={{ maxWidth: 1100 }}>
+        <div className="card" style={{ padding: 16 }}>
+          <div style={{ fontWeight: 950, fontSize: 16 }}>Couldn’t load overview</div>
+          <div className="muted" style={{ marginTop: 6 }}>{msg}</div>
+          <button className="btn" style={{ marginTop: 12 }} onClick={() => overviewQ.refetch()}>
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="container">
+    <div className="container" style={{ maxWidth: 1100 }}>
       {/* Header */}
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          gap: 12,
+          flexWrap: "wrap",
+          alignItems: "flex-end",
+        }}
+      >
         <div>
-          <h1 style={{ marginBottom: 4 }}>Overview</h1>
-          <div className="muted">Tenant analytics snapshot</div>
+          <div className="muted" style={{ fontSize: 12 }}>Dashboard</div>
+          <h1 style={{ marginBottom: 4, fontSize: 26, fontWeight: 950 }}>Overview</h1>
+          <div className="muted" style={{ fontSize: 12 }}>
+            Snapshot of feedback activity • Updated {fmtDT(d.updatedAt)}
+          </div>
         </div>
 
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
           <span className="muted" style={{ fontSize: 12 }}>Window</span>
           <select
             value={days}
             onChange={(e) => setDays(Number(e.target.value))}
-            style={{ width: 140 }}
+            style={{
+              width: 160,
+              padding: 10,
+              borderRadius: 12,
+              border: "1px solid #e5e7eb",
+              background: "#fff",
+              fontWeight: 700,
+            }}
           >
             <option value={7}>Last 7 days</option>
             <option value={14}>Last 14 days</option>
@@ -70,13 +122,20 @@ export default function OverviewPage() {
       </div>
 
       {/* KPI Cards */}
-      <div className="grid" style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))", marginTop: 14 }}>
+      <div
+        className="grid"
+        style={{
+          gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+          marginTop: 14,
+          gap: 12,
+        }}
+      >
         <StatCard
           label="Responses (window)"
-          value={d.responsesInWindow}
-          sub={`Since ${new Date(d.since).toLocaleString()}`}
+          value={d.responsesInWindow ?? 0}
+          sub={`Since ${fmtDT(d.since)}`}
         />
-        <StatCard label="Total responses" value={d.totalResponses} />
+        <StatCard label="Total responses" value={d.totalResponses ?? 0} />
         <StatCard
           label="Avg time spent (min)"
           value={d.avgTimeSpentMin == null ? "—" : d.avgTimeSpentMin.toFixed(1)}
@@ -85,14 +144,24 @@ export default function OverviewPage() {
       </div>
 
       {/* Bars */}
-      <div className="grid" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))", marginTop: 12 }}>
-        <div className="card">
+      <div
+        className="grid"
+        style={{
+          gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))",
+          marginTop: 12,
+          gap: 12,
+        }}
+      >
+        <div className="card" style={{ padding: 14 }}>
           <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "baseline" }}>
-            <h3 style={{ margin: 0 }}>Sources</h3>
-            <span className="muted" style={{ fontSize: 12 }}>QR vs STAFF</span>
+            <div>
+              <div style={{ fontWeight: 950 }}>Channels</div>
+              <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>Public QR vs Staff-assisted</div>
+            </div>
+            <span className="muted" style={{ fontSize: 12 }}>Last {days} days</span>
           </div>
 
-          <div style={{ marginTop: 10 }}>
+          <div style={{ marginTop: 12 }}>
             {(d.sources || []).length ? (
               <BarList
                 items={(d.sources || []).map((x) => ({ label: x.source, value: x.count }))}
@@ -100,18 +169,23 @@ export default function OverviewPage() {
                 valueKey="value"
               />
             ) : (
-              <div className="muted">No source data yet.</div>
+              <div className="muted">No channel data yet.</div>
             )}
           </div>
         </div>
 
-        <div className="card">
+        <div className="card" style={{ padding: 14 }}>
           <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "baseline" }}>
-            <h3 style={{ margin: 0 }}>Top fast-exit reasons</h3>
+            <div>
+              <div style={{ fontWeight: 950 }}>Top fast-exit reasons</div>
+              <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+                Why customers leave quickly
+              </div>
+            </div>
             <span className="muted" style={{ fontSize: 12 }}>Last {days} days</span>
           </div>
 
-          <div style={{ marginTop: 10 }}>
+          <div style={{ marginTop: 12 }}>
             {(d.fastExitReasonsTop || []).length ? (
               <BarList
                 items={(d.fastExitReasonsTop || []).map((x) => ({ label: x.reason, value: x.count }))}
@@ -126,14 +200,24 @@ export default function OverviewPage() {
       </div>
 
       {/* Charts + Drilldowns */}
-      <div className="grid" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))", marginTop: 12 }}>
-        <div className="card">
+      <div
+        className="grid"
+        style={{
+          gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))",
+          marginTop: 12,
+          gap: 12,
+        }}
+      >
+        <div className="card" style={{ padding: 14 }}>
           <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "baseline" }}>
-            <h3 style={{ margin: 0 }}>Trends (14 days)</h3>
-            <span className="muted" style={{ fontSize: 12 }}>responses/day</span>
+            <div>
+              <div style={{ fontWeight: 950 }}>Trends</div>
+              <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>Last 14 days</div>
+            </div>
+            <span className="muted" style={{ fontSize: 12 }}>Responses/day</span>
           </div>
 
-          <div style={{ marginTop: 10 }}>
+          <div style={{ marginTop: 12 }}>
             {trendsQ.isLoading ? (
               <div className="muted">Loading trends…</div>
             ) : trendsQ.data?.ok ? (
@@ -162,13 +246,20 @@ export default function OverviewPage() {
           </div>
         </div>
 
-        <div className="card">
+        <div className="card" style={{ padding: 14 }}>
           <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "baseline" }}>
-            <h3 style={{ margin: 0 }}>Survey breakdown</h3>
-            <span className="muted" style={{ fontSize: 12 }}>click a survey</span>
+            <div>
+              <div style={{ fontWeight: 950 }}>Survey breakdown</div>
+              <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+                Click a survey to open analytics + QR
+              </div>
+            </div>
+            <span className="muted" style={{ fontSize: 12 }}>
+              {surveyRows.length ? `${surveyRows.length} surveys` : "No data"}
+            </span>
           </div>
 
-          <div style={{ marginTop: 10 }}>
+          <div style={{ marginTop: 12 }}>
             {surveyRows.length ? (
               <div style={{ display: "grid", gap: 8 }}>
                 {surveyRows.map((s) => (
@@ -186,8 +277,8 @@ export default function OverviewPage() {
                       textDecoration: "none",
                     }}
                   >
-                    <span style={{ fontWeight: 800 }}>{s.title}</span>
-                    <span className="muted">{s.count}</span>
+                    <span style={{ fontWeight: 850 }}>{s.title}</span>
+                    <span className="muted" style={{ fontWeight: 800 }}>{s.count}</span>
                   </Link>
                 ))}
               </div>

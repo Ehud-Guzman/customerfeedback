@@ -2,13 +2,14 @@ export default function LineChart({
   data = [],
   xKey = "x",
   yKey = "y",
-  height = 140,
+  height = 150,
   label,
   valueFmt = (v) => String(v),
 }) {
-  const W = 800; // internal viewbox width
+  const W = 800;
   const H = height;
-  const PAD = 24;
+  const PADX = 28;
+  const PADY = 22;
 
   const pts = data
     .map((d) => ({
@@ -32,10 +33,10 @@ export default function LineChart({
 
   const xSpan = pts.length - 1 || 1;
 
-  const sx = (i) => PAD + (i / xSpan) * (W - PAD * 2);
-  const sy = (y) => PAD + (1 - (y - yMin) / ySpan) * (H - PAD * 2);
+  const sx = (i) => PADX + (i / xSpan) * (W - PADX * 2);
+  const sy = (y) => PADY + (1 - (y - yMin) / ySpan) * (H - PADY * 2);
 
-  const d = pts
+  const pathD = pts
     .map((p, i) => `${i === 0 ? "M" : "L"} ${sx(i).toFixed(2)} ${sy(p.y).toFixed(2)}`)
     .join(" ");
 
@@ -44,43 +45,65 @@ export default function LineChart({
   return (
     <div>
       {label ? (
-        <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
-          {label}
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
+          <div className="muted" style={{ fontSize: 12 }}>{label}</div>
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              fontSize: 12,
+              fontWeight: 900,
+              padding: "6px 10px",
+              borderRadius: 999,
+              border: "1px solid #e5e7eb",
+              background: "#fff",
+            }}
+          >
+            Latest: {valueFmt(last.y)}
+          </span>
         </div>
       ) : null}
 
-      <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} role="img">
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} role="img" style={{ marginTop: label ? 10 : 0 }}>
         {/* grid */}
-        <g opacity="0.35">
+        <g opacity="0.5">
           {[0, 0.25, 0.5, 0.75, 1].map((t) => {
-            const y = PAD + t * (H - PAD * 2);
-            return <line key={t} x1={PAD} y1={y} x2={W - PAD} y2={y} stroke="#e5e7eb" />;
+            const y = PADY + t * (H - PADY * 2);
+            return (
+              <line
+                key={t}
+                x1={PADX}
+                y1={y}
+                x2={W - PADX}
+                y2={y}
+                stroke="#e5e7eb"
+              />
+            );
           })}
         </g>
 
         {/* line */}
-        <path d={d} fill="none" stroke="#2563eb" strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />
-
-        {/* points */}
-        {pts.map((p, i) => (
-          <circle key={i} cx={sx(i)} cy={sy(p.y)} r="3.5" fill="#111827" opacity="0.9" />
-        ))}
+        <path
+          d={pathD}
+          fill="none"
+          stroke="#2563eb"
+          strokeWidth="3"
+          strokeLinejoin="round"
+          strokeLinecap="round"
+        />
 
         {/* last point highlight */}
         <circle cx={sx(pts.length - 1)} cy={sy(last.y)} r="6" fill="#2563eb" opacity="0.9" />
 
         {/* y labels */}
-        <text x={PAD} y={PAD - 8} fontSize="11" fill="#6b7280">
+        <text x={PADX} y={PADY - 8} fontSize="11" fill="#6b7280">
           {valueFmt(yMax)}
         </text>
-        <text x={PAD} y={H - 6} fontSize="11" fill="#6b7280">
+        <text x={PADX} y={H - 6} fontSize="11" fill="#6b7280">
           {valueFmt(yMin)}
         </text>
       </svg>
-
-      <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>
-        Latest: <b>{valueFmt(last.y)}</b>
-      </div>
     </div>
   );
 }

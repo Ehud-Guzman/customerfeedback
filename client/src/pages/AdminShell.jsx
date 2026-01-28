@@ -2,8 +2,8 @@ import { Outlet, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { storage } from "../lib/storage";
 
 function crumbsFor(pathname) {
-  if (pathname.startsWith("/app/surveys/")) return ["Overview", "Survey analytics"];
-  if (pathname.startsWith("/staff/submit")) return ["Staff", "Assisted submit"];
+  if (pathname.startsWith("/app/surveys/")) return ["Overview", "Survey"];
+  if (pathname.startsWith("/staff/submit")) return ["Staff submit"];
   if (pathname.startsWith("/app/overview")) return ["Overview"];
   return ["Dashboard"];
 }
@@ -17,7 +17,10 @@ export default function AdminShell() {
     nav("/login", { replace: true });
   };
 
-  const orgId = storage.getOrgId() || "—";
+  // You can replace this later with orgName when you implement it.
+  const orgId = storage.getOrgId();
+  const orgLabel = orgId ? "Connected" : "—";
+
   const crumbs = crumbsFor(loc.pathname);
 
   return (
@@ -25,15 +28,15 @@ export default function AdminShell() {
       <div className="topbar">
         <div className="container">
           <div className="topbar-inner">
-            <div className="brand">
+            <div className="brand" style={{ cursor: "pointer" }} onClick={() => nav("/app/overview")}>
               <div className="brand-mark" />
               <div>
                 <div className="brand-name">Customer Feedback</div>
-                <div className="brand-subline">Tenant analytics • QR + Staff</div>
+                <div className="brand-subline">Analytics • QR + Staff</div>
               </div>
             </div>
 
-            <div className="nav-pills">
+            <div className="nav-pills" style={{ gap: 8 }}>
               <NavLink
                 to="/app/overview"
                 className={({ isActive }) => `pill ${isActive ? "pill-active" : ""}`}
@@ -49,15 +52,15 @@ export default function AdminShell() {
               </NavLink>
             </div>
 
-            <div className="right-tools">
-              <span className="chip">Org: {orgId}</span>
+            <div className="right-tools" style={{ gap: 10 }}>
+              <span className="chip">Org: {orgLabel}</span>
               <button className="btn-secondary" onClick={logout}>
                 Logout
               </button>
             </div>
           </div>
 
-          <div className="breadcrumbs">
+          <div className="breadcrumbs" style={{ marginTop: 10 }}>
             {crumbs.join(" / ")}
           </div>
         </div>
