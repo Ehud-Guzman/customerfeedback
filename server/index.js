@@ -18,9 +18,11 @@ import { requireAnalyticsAccess } from "./src/middleware/requireAnalyticsAccess.
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 5000;
+const PORT = Number(process.env.PORT) || 5000;
 
-// CORS
+app.set("trust proxy", 1);
+
+// ---------- CORS (polished) ----------
 const envOrigins = String(process.env.ALLOWED_ORIGINS || "")
   .split(",")
   .map((s) => s.trim())
@@ -32,35 +34,41 @@ const allowedOrigins = new Set([
   ...envOrigins,
 ]);
 
-app.set("trust proxy", 1);
+// One middleware instance for BOTH normal requests + preflight
+const corsMiddleware = cors({
+  origin: (origin, cb) => {
+    // Allow server-to-server, curl, Postman, etc.
+    if (!origin) return cb(null, true);
 
-app.use(
-  cors({
-    origin: (origin, cb) => {
-      if (!origin) return cb(null, true);
-      if (allowedOrigins.has(origin)) return cb(null, true);
-      return cb(new Error("Not allowed by CORS"));
-    },
-    credentials: true,
-    allowedHeaders: ["Content-Type", "Authorization", "X-Org-Id"],
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  })
-);
+    // Allow only explicitly listed origins
+    if (allowedOrigins.has(origin)) return cb(null, true);
 
-app.options("*", cors());
+    // IMPORTANT: return false (not error) to let cors handle it consistently
+    return cb(null, false);
+  },
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Org-Id"],
+  credentials: false, // you're using withCredentials: false in axios
+  maxAge: 86400, // cache preflight 24h
+});
 
+app.use(corsMiddleware);
+app.options("*", corsMiddleware);
+
+// ---------- Core middleware ----------
 app.use(express.json({ limit: "1mb" }));
 app.disable("etag");
 
-// Health
-app.get("/health", (req, res) =>
-  res.json({ status: "ok", message: "Customer Feedback API running" })
-);
+// ---------- Health ----------
+app.get("/health", (req, res) => {
+  res.json({ ok: true, status: "ok", message: "Customer Feedback API running" });
+});
 
+// ---------- Routes ----------
 // Public (QR) routes (NO AUTH)
 app.use("/api/public", publicRoutes);
 
-// Auth
+// Auth (NO AUTH)
 app.use("/api/auth", authRoutes);
 
 // Platform (SYSTEM_ADMIN)
@@ -78,18 +86,19 @@ app.use("/api/analytics", requireAnalyticsAccess, analyticsRoutes);
 // Staff-assisted submissions (STAFF allowed)
 app.use("/api/staff-feedback", staffFeedbackRoutes);
 
-// 404
-app.use((req, res) =>
+// ---------- 404 ----------
+app.use((req, res) => {
   res
     .status(404)
-    .json({ ok: false, message: `Route not found: ${req.method} ${req.originalUrl}` })
-);
+    .json({ ok: false, message: `Route not found: ${req.method} ${req.originalUrl}` });
+});
 
-// Global error handler
+// ---------- Global error handler ----------
 app.use((err, req, res, next) => {
   console.error("GLOBAL ERROR:", err);
 
-  if (err?.message?.includes("CORS") || err?.message?.includes("Not allowed by CORS")) {
+  // Handle explicit CORS blocks if you ever throw them elsewhere
+  if (String(err?.message || "").toLowerCase().includes("cors")) {
     return res.status(403).json({ ok: false, message: "Blocked by CORS" });
   }
 
@@ -100,4 +109,8 @@ app.use((err, req, res, next) => {
   return res.status(status).json({ ok: false, message });
 });
 
-app.listen(PORT, "0.0.0.0", () => console.log(`Server running on port ${PORT}`));
+// ---------- Start ----------
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`Server running on port ${PORT}`);
+  console.log("Allowed origins:", [...allowedOrigins]);
+});
