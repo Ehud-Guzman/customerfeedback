@@ -1,4 +1,6 @@
 {
+
+  
   "name": "customer-feedback-client",
   "version": "0.1.0",
   "private": true,
@@ -21,4 +23,5 @@
     "@vitejs/plugin-react": "^4.3.1",
     "vite": "^7.3.1"
   }
+  
 }
